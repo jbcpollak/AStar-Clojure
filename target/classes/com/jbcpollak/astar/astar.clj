@@ -1,33 +1,4 @@
-(ns com.example.clap)
-
-(def boston {:name :boston :x 100 :y 100
-  :edges [
-    {:next :nyc :weight 100}
-    {:next :chicago :weight 55}
-    {:next :portland :weight 20}]} )
-   
-(def nyc {:name :nyc :x 100 :y 75
-  :edges [{:next :washington :weight 100}]} )
-  
-(def washington {:name :washington :x 100 :y 50
-  :edges [{:next :miami :weight 100}]})
-  
-(def chicago {:name :chicago :x 50 :y 100
-  :edges [{:next :miami :weight 50}]})
-  
-(def portland {:name :portland :x 100 :y 110
-  :edges [{:next :miami :weight 10}]} )
-  
-(def miami {:name :miami :x 102 :y 0 :edges []})
-  
-(def cities {
-  :boston boston, 
-  :nyc nyc, 
-  :washington washington, 
-  :chicago chicago, 
-  :miami miami,
-  :portland portland}
-  )
+(ns com.jbcpollak.astar)
 
 (defn square [val]
   (* val val))
@@ -94,14 +65,16 @@
 ;(reconstruct-path cities {:name :boston} "")
 ;(reconstruct-path mypath :nyc "") 
       
-(defn check-edges [x, goal, closedset nodes]
+(defn check-edges [x, goal, closedset, nodes]
     (loop [edges (:edges x)
           openset {}] 
         (if (= (count edges) 0)
           openset
           (let [edge (first edges)
             n ((:next edge) nodes)] 
-            ;(println "Edge: " edge ", N: " n ", Openset: " openset)
+            (if (= n nil)
+              (throw (new com.jbcpollak.astar.AStarException 
+                (str "No node named " (:next edge) " found in " nodes))))
             (recur (rest edges)
               (if (= ((:next edge) closedset) nil)
                 (assoc openset (:name n)
@@ -114,7 +87,7 @@
 ; For debugging check-edges, :paris and :chicago should be in the returned set, but not nyc.         
 ;(check-edges (assoc boston :g_score 0) miami { :nyc [] :washington [] } cities)
 
-(defn a-star [start, goal, cities]
+(defn a-star [start, goal, graph-nodes]
   (loop [closedset {}
          openset {(:name start)
             (assoc start 
@@ -132,10 +105,63 @@
         
         (recur (assoc closedset (:name x) x) 
                (merge (dissoc openset (:name x))
-                (check-edges x goal closedset (merge cities closedset openset)))))))))
+                (check-edges x goal closedset 
+                  (merge graph-nodes closedset openset)))))))))
 
-(defn run []
-  (println "Boston to Boston: " (a-star boston boston cities))
-  (println "Boston to New York: " (a-star boston nyc cities))
-  (println "Boston to Miami: " (a-star boston miami cities)))
+(defn parse-node [rawNode]
+  (merge 
+       {:edges (loop [e (:content (first (:content rawNode)))
+                      formatted_edges []] 
+                  (if (= (first e) nil)
+                      formatted_edges
+                      (recur (rest e)
+                             (conj formatted_edges 
+                              (let [edge (:attrs (first e))]
+                                (assoc (assoc edge 
+                                  :next (keyword (:next edge)))
+                                  :weight (Integer.(:weight edge))))))))}
+       (let [attrs (:attrs rawNode)]
+          (assoc
+            (assoc 
+              (assoc attrs 
+                :x (Integer.(:x attrs)))
+                :y (Integer.(:y attrs)))
+                :name (keyword (:name attrs))))))
 
+(defn load-graph [filename]
+  (println "Loading " filename)
+  (def xml (clojure.xml/parse filename))
+  ;(println "XML:" xml)
+  (def nodeList (:content xml))
+  (def formatted_nodes
+      (loop [node nodeList
+             formatted_nodes {}]
+          (if (= (first node) nil)
+              formatted_nodes
+              (recur (rest node)
+                     (let [newNode (parse-node (first node))]
+                        (assoc formatted_nodes 
+                            (keyword (:name newNode)) newNode))))))
+  ;(println "Nodes:" formatted_nodes)
+  formatted_nodes)
+  
+(defn a-star-from-file [start end filename]
+  (def formatted_nodes (load-graph filename))
+  ;(println "Nodes:" formatted_nodes)
+  ;(println "Start: " ((keyword start) formatted_nodes))
+  ;(println "End: " ((keyword start) formatted_nodes))
+  
+  (println "Quickest route from" start "to" end ": "
+     (a-star ((keyword start) formatted_nodes)
+             ((keyword end) formatted_nodes)
+             formatted_nodes))
+  ;(println "Boston to New York: " (a-star boston nyc formatted_nodes))
+  ;(println "Boston to Miami: " (a-star boston miami formatted_nodes))
+      )
+      
+(defn a-star-simple [start end graph]
+  (println "Quickest route from" start "to" end ": "
+     (a-star ((keyword start) graph)
+             ((keyword end) graph)
+             graph))
+      )
